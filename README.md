@@ -98,3 +98,20 @@ src/
 3. outils supplémentaires : couleurs, surligneur, formes, sélection ;
 4. découpage du cache bitmap en tuiles pour les pages très denses ;
 5. PWA complète (service worker) pour une utilisation hors ligne installée.
+
+## Application Android native
+
+Le projet Android autonome se trouve dans `android-app/`. Il fonctionne sans
+serveur et conserve les notes dans l'espace privé de l'application. Le format
+exporté est le même `mynotes.doc` v1 que celui de l'application web.
+
+```bash
+cd android-app
+./gradlew assembleDebug
+# APK : app/build/outputs/apk/debug/app-debug.apk
+```
+
+L'éditeur Android fournit la page A4, l'écriture pression stylet/doigt, le
+rejet de la paume en mode stylet seul, le zoom à deux doigts, les pages
+multiples, l'annulation, la gomme et la persistance locale. Les réglages du
+mode de saisie survivent au redémarrage.
