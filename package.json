@@ -1,0 +1,21 @@
+{
+  "name": "mynotes",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "MyNotes — application de prise de notes manuscrites (stylet / doigt)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node tests/logic.test.mjs"
+  },
+  "dependencies": {
+    "perfect-freehand": "^1.2.2"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.5",
+    "jsdom": "^30.0.1",
+    "vite": "^6.3.5"
+  }
+}
