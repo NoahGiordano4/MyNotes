@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#334155"/>
+      <stop offset="1" stop-color="#0f172a"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#g)"/>
+  <!-- feuille -->
+  <rect x="14" y="10" width="30" height="40" rx="3" fill="#ffffff" opacity="0.95"/>
+  <!-- traits manuscrits -->
+  <path d="M18 18 C 21 12, 25 24, 28 17 S 34 22 36 18" fill="none" stroke="#0f172a" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M18 28 C 22 24, 24 32, 28 28 S 33 31 36 28" fill="none" stroke="#2563eb" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M18 38 C 22 35, 25 42, 30 38" fill="none" stroke="#94a3b8" stroke-width="2.4" stroke-linecap="round"/>
+  <!-- stylo -->
+  <path d="M40 46 L52 34 L56 38 L44 50 L39 51 Z" fill="#f59e0b" stroke="#b45309" stroke-width="1.4" stroke-linejoin="round"/>
+</svg>
