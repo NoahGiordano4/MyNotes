@@ -1,0 +1,402 @@
+{
+  "document": {
+    "titre": "Cahier des charges — MyNotes",
+    "version": "1.0",
+    "date": "2026-08-27",
+    "langue": "fr-FR",
+    "auteur": "Noah Giordano",
+    "objet": "Application de prise de notes manuscrites (stylet / doigt) — web et Android natif",
+    "comment_utiliser": "Donner ce fichier à un développeur ou un agent IA (session Arena, Copilot, etc.) comme référence unique du projet. Chaque exigence a un identifiant, une priorité et un statut."
+  },
+
+  "projet": {
+    "nom": "MyNotes",
+    "description": "Application de prise de notes manuscrites : page A4 blanche, encre noire fluide et optimisée, écrite au stylet ou au doigt, avec zoom et déplacement à deux doigts, pages multiples par note et sauvegarde compatible cloud (Google Drive / OneDrive).",
+    "objectif_principal": "Écrire à la main naturellement, retrouver toutes ses notes en les fermant/rouvrant telles quelles, et pouvoir les sauvegarder dans le cloud.",
+    "appareils_cibles": [
+      "Tablette Android + stylet (cible principale)",
+      "Tablette Android + doigt",
+      "iPad + Apple Pencil (version web)",
+      "PC / portable (souris, molette, clavier)"
+    ],
+    "plateformes": [
+      {
+        "nom": "web",
+        "dossier_dans_le_depot": "/ (racine : src/, public/, index.html, package.json)",
+        "stack": "Vite + JavaScript vanilla + perfect-freehand",
+        "lancement": "npm install puis npm run dev (http://localhost:5173)",
+        "tests": "npm test (tests/logic.test.mjs)",
+        "build": "npm run build → dist/"
+      },
+      {
+        "nom": "android",
+        "dossier_dans_le_depot": "/android-app",
+        "stack": "Kotlin, Views + ViewBinding, Material 3, RecyclerView",
+        "ouverture": "Android Studio → File → Open → dossier android-app/",
+        "sdk": { "minSdk": 24, "targetSdk": 34, "compileSdk": 34 },
+        "outils": { "gradle": "8.7 (wrapper inclus)", "agp": "8.5.2", "kotlin": "1.9.24" },
+        "build": "./gradlew assembleDebug → app/build/outputs/apk/debug/app-debug.apk"
+      }
+    ],
+    "principe_fort": "Les deux applications partagent le MÊME format de données (mynotes.doc v1) : une note exportée par l'une s'importe dans l'autre."
+  },
+
+  "etat_initial": {
+    "date": "2026-08-27",
+    "web": "Fonctionnel et fusionné sur main (PR #1) : menu, éditeur complet, paramètres, tests (31 vérifications).",
+    "android": "Code complet dans /android-app (commit local préparé) — à pousser sur GitHub puis à compiler dans Android Studio.",
+    "a_verifier": "La première compilation Gradle de l'app Android peut révéler de petits correctifs (environnement non compilable lors de la rédaction). Toute erreur remontée doit être corrigée avant merge."
+  },
+
+  "exigences_fonctionnelles": [
+    {
+      "id": "EF-01",
+      "titre": "Menu des notes",
+      "description": "Écran d'accueil listant toutes les notes sous forme de cartes : vignette de couverture, titre, date de dernière modification, nombre de pages. Tri par date de modification décroissante.",
+      "priorite": "haute",
+      "statut": "livré (web + android)",
+      "criteres_acceptation": [
+        "Les notes apparaissent triées de la plus récemment modifiée à la plus ancienne",
+        "Le survol d'une carte (web) ou le bouton ⋮ (android) révèle les actions"
+      ]
+    },
+    {
+      "id": "EF-02",
+      "titre": "Création d'une note",
+      "description": "Un bouton bien visible (« Nouvelle note » / bouton flottant +) crée une note vide d'une page A4 et ouvre l'éditeur.",
+      "priorite": "haute",
+      "statut": "livré (web + android)",
+      "criteres_acceptation": [
+        "La note apparaît dans le menu immédiatement après création",
+        "La note s'ouvre sur une page A4 blanche vide prête à écrire"
+      ]
+    },
+    {
+      "id": "EF-03",
+      "titre": "Renommer une note",
+      "description": "Renommage depuis la carte du menu. Titre modifiable aussi depuis la barre de l'éditeur.",
+      "priorite": "moyenne",
+      "statut": "livré (web + android)"
+    },
+    {
+      "id": "EF-04",
+      "titre": "Supprimer une note",
+      "description": "Suppression avec fenêtre de confirmation indiquant le titre et le nombre de pages. Irréversible.",
+      "priorite": "moyenne",
+      "statut": "livré (web + android)"
+    },
+    {
+      "id": "EF-05",
+      "titre": "Éditeur — page A4 blanche, écriture noire",
+      "description": "Page au format A4 (794 × 1123 unités monde = 210 × 297 mm à 96 dpi), fond blanc, ombre portée légère, encre noire fluide à largeur variable selon la pression.",
+      "priorite": "haute",
+      "statut": "livré (web + android)",
+      "criteres_acceptation": [
+        "Le trait suit la pointe du stylet sans saut ni retard perceptible",
+        "La largeur du trait varie avec la pression du stylet",
+        "Un simple toucher pose un point net"
+      ]
+    },
+    {
+      "id": "EF-06",
+      "titre": "Pression du stylet / simulation",
+      "description": "Pression réelle du stylet lissée (stylet), pression simulée à partir de la vitesse pour le doigt et la souris.",
+      "priorite": "haute",
+      "statut": "livré (web + android)"
+    },
+    {
+      "id": "EF-07",
+      "titre": "Outils d'écriture",
+      "description": "Trois épaisseurs de plume (fine 2,2 / moyenne 3,4 / épaisse 5,4) et une gomme qui efface des traits entiers (touche un trait = l'efface). La gomme du stylet physique (TOOL_TYPE_ERASER) est reconnue sur Android.",
+      "priorite": "haute",
+      "statut": "livré (web + android)"
+    },
+    {
+      "id": "EF-08",
+      "titre": "Annuler / rétablir",
+      "description": "Undo/redo par page (ajouts et effacements), pile limitée à 120 opérations, boutons désactivés quand vide. Raccourcis web : Ctrl+Z / Ctrl+Maj+Z, B (plume), E (gomme).",
+      "priorite": "haute",
+      "statut": "livré (web + android)"
+    },
+    {
+      "id": "EF-09",
+      "titre": "Pages multiples",
+      "description": "Une note contient N pages A4 : navigation précédent/suivant, ajout de page en fin de note, compteur « page / total ».",
+      "priorite": "haute",
+      "statut": "livré (web + android)"
+    },
+    {
+      "id": "EF-10",
+      "titre": "Paramètres — mode de saisie",
+      "description": "Réglage persistant à deux valeurs : « Stylet uniquement » (le doigt ne trace jamais : 1 doigt = déplacement, 2 doigts = zoom/déplacement, paume ignorée) et « Stylet + doigt » (1 doigt = écriture ; quand un 2e doigt se pose, le trait en cours est annulé et le pincement prend le relais). Appliqué immédiatement, sans redémarrage.",
+      "priorite": "haute",
+      "statut": "livré (web + android)",
+      "criteres_acceptation": [
+        "En mode stylet uniquement, aucun trait ne peut être tracé au doigt",
+        "Le réglage survit à la fermeture de l'app (localStorage web / SharedPreferences android)"
+      ]
+    },
+    {
+      "id": "EF-11",
+      "titre": "Gestes — zoom et déplacement",
+      "description": "Pincement à 2 doigts = zoom (facteur 0,2× à 8×) + déplacement simultané. 1 doigt = déplacement quand l'écriture au doigt est désactivée. Souris : molette = déplacement, Ctrl+molette = zoom, Espace+mouvement = déplacement, Ctrl+0 ou bouton = ajuster la page à l'écran. Une pastille affiche le zoom en cours.",
+      "priorite": "haute",
+      "statut": "livré (web + android)",
+      "criteres_acceptation": [
+        "Le zoom est centré sur le milieu du pincement",
+        "La page ne peut pas être perdu totalement hors écran (marges de maintien)",
+        "Le trait en cours est annulé proprement si un 2e doigt arrive en mode stylet+doigt"
+      ]
+    },
+    {
+      "id": "EF-12",
+      "titre": "Rejet de la paume",
+      "description": "Pendant une écriture au stylet, les pointeurs tactiles sont ignorés. Le stylet a priorité absolue : il interrompt une gestuelle tactile en cours.",
+      "priorite": "haute",
+      "statut": "livré (web + android)"
+    },
+    {
+      "id": "EF-13",
+      "titre": "Fermer / rouvrir les notes",
+      "description": "Chaque note se ferme (retour menu) et se rouvre à l'identique : traits, page courante, titre. Sauvegarde automatique débouncée (≈ 350 ms) + à la fermeture, au changement de page et quand l'app passe en arrière-plan.",
+      "priorite": "haute",
+      "statut": "livré (web + android)",
+      "criteres_acceptation": [
+        "Indicateur visuel « Enregistrement… / Enregistré ✓ »",
+        "Aucune perte de données si l'app est tuée par le système"
+      ]
+    },
+    {
+      "id": "EF-14",
+      "titre": "Export / import de note",
+      "description": "Exporter une note en fichier JSON autonome (format mynotes.doc v1) et importer un tel fichier en nouvelle note (sélecteur système SAF sur Android : propose déjà Google Drive comme source/destination).",
+      "priorite": "moyenne",
+      "statut": "livré (web + android)"
+    },
+    {
+      "id": "EF-20",
+      "titre": "Sauvegarde Google Drive",
+      "description": "Sauvegarde/restauration des notes vers Google Drive : OAuth (Google Sign-In ou Picker API), une note = un fichier mynotes.doc, synchronisation en arrière-plan sur Android (WorkManager), résolution de conflits « dernier modifié gagne ».",
+      "priorite": "haute (roadmap v1.1)",
+      "statut": "à faire",
+      "prerequis": "Aucun changement de format : mynotes.doc v1 est déjà conçu pour ça"
+    },
+    {
+      "id": "EF-21",
+      "titre": "Sauvegarde OneDrive",
+      "description": "Même chose via Microsoft Graph API (OAuth MSAL), dossier /Apps/MyNotes/.",
+      "priorite": "moyenne (roadmap v1.1)",
+      "statut": "à faire"
+    },
+    {
+      "id": "EF-22",
+      "titre": "Reconnaissance d'écriture manuscrite",
+      "description": "Convertir des traits en texte : approche recommandée Android = ML Kit Digital Ink (hors ligne, gratuit, les traits [x, y, pression] sont déjà au bon format) ; approche web = API vision ou modèle HTR. Pré-requis : ajouter l'horodatage des points (champ t optionnel, format v1.1 rétrocompatible) et un champ texte par page. Ajoute la recherche plein texte dans toutes les notes.",
+      "priorite": "moyenne (roadmap v1.2)",
+      "statut": "à faire"
+    },
+    {
+      "id": "EF-23",
+      "titre": "PWA hors ligne (web)",
+      "description": "Service worker + cache pour une utilisation installée et 100 % hors ligne sur tablette/iPad.",
+      "priorite": "basse (roadmap v1.2)",
+      "statut": "à faire"
+    },
+    {
+      "id": "EF-24",
+      "titre": "Couleurs et surligneur",
+      "description": "Palette de couleurs d'encre + outil surligneur semi-transparent.",
+      "priorite": "basse (roadmap v1.3)",
+      "statut": "à faire"
+    }
+  ],
+
+  "exigences_non_fonctionnelles": [
+    {
+      "id": "ENF-01",
+      "titre": "Fluidité du tracé",
+      "detail": "Les traits terminés sont dessinés une seule fois dans un cache bitmap hors-écran ; pendant l'écriture, seul le trait en cours est redessiné à chaque frame. Utiliser les événements coalescés (web : getCoalescedEvents ; android : getHistorical*) pour ne perdre aucune interposition du stylet. Sous-échantillonnage spatial ≈ 1 px/dp entre deux points conservés."
+    },
+    {
+      "id": "ENF-02",
+      "titre": "Stockage efficace",
+      "detail": "Sauvegarder PAGE PAR PAGE (jamais toute la note d'un bloc) pour que l'écriture reste instantanée sur de longues notes. Coordonnées arrondies à 2 décimales dans les fichiers. Vignettes compressées (JPEG/PNG) pour le menu."
+    },
+    {
+      "id": "ENF-03",
+      "titre": "Robustesse",
+      "detail": "Une erreur de sauvegarde ne doit jamais faire planter l'app. Écriture atomique des fichiers (temporaire + renommement). Les entrées sont ignorées tant que la page n'est pas chargée."
+    },
+    {
+      "id": "ENF-04",
+      "titre": "Légèreté",
+      "detail": "Web : pas de framework lourd (bundle < 50 Ko). Android : pas de dépendance inutile."
+    },
+    {
+      "id": "ENF-05",
+      "titre": "Langue et accessibilité",
+      "detail": "Interface en français. Chaque bouton a une description (title web / contentDescription android). Zones tactiles ≥ 40 dp."
+    },
+    {
+      "id": "ENF-06",
+      "titre": "Compatibilité",
+      "detail": "Android 7.0+ (minSdk 24). Navigateurs modernes (Chrome, Safari 15+, Firefox, Edge)."
+    }
+  ],
+
+  "donnees": {
+    "stockage_local": {
+      "web": "IndexedDB, base mynotes : store notes (métadonnées) + store pages (clé noteId:index, une écriture par page) ; réglages dans localStorage.",
+      "android": "Fichiers de l'espace privé : files/notes/<id>/meta.json + files/notes/<id>/p<index>.json (écriture atomique) + files/thumbs/<id>.png ; réglages en SharedPreferences."
+    },
+    "unites": "Coordonnées « monde » : page A4 = 794 × 1123 unités (210 × 297 mm à 96 dpi). Écran = monde × échelle + décalage.",
+    "trait": "Un trait = couleur + taille de plume + points [x, y, pression, x, y, pression, …].",
+    "format_de_fichier": {
+      "nom": "mynotes.doc",
+      "version": 1,
+      "regle": "Toute évolution du format doit rester rétrocompatible (nouveaux champs optionnels uniquement, incrémenter version).",
+      "exemple": {
+        "format": "mynotes.doc",
+        "version": 1,
+        "app": "MyNotes",
+        "id": "uuid",
+        "title": "Mes cours",
+        "createdAt": 1724700000000,
+        "updatedAt": 1724700000000,
+        "pages": [
+          {
+            "index": 0,
+            "strokes": [
+              { "c": "#000000", "s": 3.4, "p": [100.0, 150.0, 0.55, 104.25, 151.1, 0.6] }
+            ]
+          }
+        ]
+      },
+      "extensions_prevues": {
+        "v1.1": "champ t optionnel (timestamps par point) + champ text par page (texte reconnu) — nécessaires pour la reconnaissance d'écriture (EF-22)"
+      }
+    },
+    "compatibilite_cloud": "Une note = un fichier JSON autonome : c'est l'unité de synchronisation vers Google Drive (EF-20) et OneDrive (EF-21)."
+  },
+
+  "github": {
+    "repository": "https://github.com/NoahGiordano4/MyNotes",
+    "branche_principale": "main",
+    "organisation_du_depot": {
+      "/ (racine)": "application web (src/, public/, tests/, index.html, package.json, vite.config.js)",
+      "/android-app": "application Android native (projet Gradle autonome avec wrapper)",
+      "/cahier-des-charges.json": "ce document",
+      "/README.md": "présentation des deux plateformes"
+    },
+    "branches": {
+      "regle": "Tout travail se fait sur une branche dédiée, jamais de commit direct sur main.",
+      "nommage": [
+        "feat/<sujet> — nouvelle fonctionnalité (ex : feat/sauvegarde-google-drive)",
+        "fix/<sujet> — correction de bug",
+        "docs/<sujet> — documentation uniquement",
+        "chore/<sujet> — outillage, CI, dépendances"
+      ]
+    },
+    "conventions_de_commit": {
+      "format": "<type>(<scope>): <description en français>",
+      "types_valides": ["feat", "fix", "docs", "refactor", "test", "chore", "style"],
+      "exemples": [
+        "feat(android): ajout de la gomme physique du stylet",
+        "fix(web): le pincement à deux doigts annule bien le trait en cours",
+        "docs: mise à jour du cahier des charges (v1.1)"
+      ]
+    },
+    "flux_de_travail": [
+      "1. Mettre à jour main : git checkout main && git pull",
+      "2. Créer une branche : git checkout -b feat/<sujet>",
+      "3. Développer en petits commits propres (conventions ci-dessus)",
+      "4. Vérifier : web → npm test && npm run build ; android → ./gradlew assembleDebug",
+      "5. Pousser : git push -u origin feat/<sujet>",
+      "6. Ouvrir une Pull Request vers main, décrire les changements et référencer les IDs d'exigences (ex : EF-20)",
+      "7. Fusionner seulement si les vérifications passent (CI incluse)",
+      "8. Supprimer la branche après fusion"
+    ],
+    "interdits": [
+      "Ne jamais committer : node_modules/, dist/, build/, .gradle/, local.properties, *.apk, *.jks, *.keystore, google-services.json, clés API ou secrets",
+      "Ne jamais réécrire l'historique de main (pas de force push)",
+      "Ne jamais casser le format mynotes.doc v1 (rétrocompatibilité obligatoire)"
+    ],
+    "ci_cd": {
+      "plateforme": "GitHub Actions",
+      "workflows_a_maintenir": [
+        {
+          "nom": "web",
+          "fichier": ".github/workflows/web.yml",
+          "declencheurs": ["push sur toute branche", "pull request vers main"],
+          "etapes": [
+            "actions/checkout@v4",
+            "setup-node@v4 (Node 20, cache npm)",
+            "npm ci",
+            "npm test",
+            "npm run build"
+          ]
+        },
+        {
+          "nom": "android",
+          "fichier": ".github/workflows/android.yml",
+          "declencheurs": ["push sur android-app/** ", "pull request vers main"],
+          "etapes": [
+            "actions/checkout@v4",
+            "actions/setup-java@v4 (temurin 17)",
+            "cd android-app && ./gradlew assembleDebug",
+            "actions/upload-artifact@v4 → APK app-debug.apk (téléchargeable dans l'onglet Actions)"
+          ],
+          "note": "L'APK d'artefact permet d'installer l'app sur la tablette SANS Android Studio : télécharger l'APK depuis GitHub → l'ouvrir sur la tablette."
+        }
+      ]
+    },
+    "instructions_pour_agent_ia": {
+      "contexte": "Le dépôt est travaillé via des sessions d'agent (Arena Agent Mode ou équivalent).",
+      "regles": [
+        "Toujours travailler sur la branche de session fournie (jamais sur une autre branche)",
+        "Committer à la fin de chaque unité de travail ; pousser uniquement la branche de session",
+        "Ouvrir la PR depuis la branche de session vers main",
+        "Respecter les conventions de commit et les interdits ci-dessus",
+        "Avant de livrer une fonctionnalité, vérifier les critères d'acceptation des exigences concernées et mettre à jour leur champ statut",
+        "Mettre à jour ce cahier des charges à chaque évolution (version + date)"
+      ]
+    }
+  },
+
+  "tests_et_qualite": {
+    "web": {
+      "commande": "npm test",
+      "contenu": "tests/logic.test.mjs — moteur de pointeurs (écriture, gestes, rejet de paume, gomme), historique, stockage IndexedDB, export/import",
+      "seuil": "100 % des tests doivent passer avant merge"
+    },
+    "android": {
+      "commande": "cd android-app && ./gradlew assembleDebug",
+      "contenu": "La compilation doit réussir sans avertissement bloquant",
+      "checklist_manuelle_tablette": [
+        "Écrire au stylet : trait fluide, épaisseur variable avec la pression",
+        "Poser la paume en écrivant au stylet : aucun parasite",
+        "Mode stylet seul : 1 doigt déplace la page, rien ne s'écrit",
+        "Mode stylet + doigt : 1 doigt écrit ; 2 doigts zooment et annulent le trait en cours",
+        "Zoom 0,2× → 8× fluide, pastille de zoom correcte",
+        "Créer 3 pages, écrire sur chacune, fermer, rouvrir : tout est intact",
+        "Exporter puis importer un .mynotes.json (vérifier aussi depuis la version web)"
+      ]
+    },
+    "definition_of_done": [
+      "Exigences concernées : critères d'acceptation vérifiés",
+      "Tests web verts + build Android réussi",
+      "Format de données inchangé ou rétrocompatible",
+      "PR relue et fusionnée, ce document mis à jour"
+    ]
+  },
+
+  "glossaire": {
+    "trait": "Ensemble de points [x, y, pression] dessinés sans lever la pointe",
+    "monde": "Système de coordonnées de la page A4 (794 × 1123), indépendant du zoom",
+    "cache_bitmap": "Image hors-écran où les traits terminés sont dessinés une seule fois",
+    "SAF": "Storage Access Framework — sélecteur de fichiers Android",
+    "PWA": "Progressive Web App — application web installable et hors ligne",
+    "HTR": "Handwritten Text Recognition — reconnaissance d'écriture manuscrite",
+    "mynotes.doc": "Format JSON versionné d'une note MyNotes, unité de sauvegarde cloud"
+  }
+}
