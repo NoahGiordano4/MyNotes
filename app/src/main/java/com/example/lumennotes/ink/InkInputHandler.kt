@@ -42,11 +42,12 @@ class InkInputHandler(context: Context, private val callback: Callback) {
         fun afterZoom()
         fun notifyPageIfChanged()
         fun overlayReset()
+        fun onSelectionCreated(selection: Selection?)
         val density: Float
         val eraseRadiusPx: Float
     }
 
-    enum class Tool { PEN, ERASER }
+    enum class Tool { PEN, ERASER, LASSO }
 
     companion object {
         private const val MIN_WORLD_STEP = 0.3f
@@ -71,6 +72,10 @@ class InkInputHandler(context: Context, private val callback: Callback) {
     var gesture: Gesture? = null
     var stylusButtonHeld = false
     var hoverPos: FloatArray? = null
+
+    private var lassoBuf: FloatBuf? = null
+    var selection: Selection? = null
+        private set
 
     private var velocity: VelocityTracker? = null
     private val scroller = OverScroller(context)
@@ -122,13 +127,21 @@ class InkInputHandler(context: Context, private val callback: Callback) {
         if (type == PtrType.STYLUS || type == PtrType.STYLUS_ERASER) {
             endGesture()
             if (mode == Mode.ERASE && erasePointerId != id) finishErase()
+            if (mode == Mode.LASSO) finishLasso()
+            
             val lv = live
             if (mode == Mode.DRAW && lv != null && !isStylus(lv.type)) discardLive()
             val btn = stylusButtonsHeld(event)
             stylusButtonHeld = btn
             val wantErase = btn || type == PtrType.STYLUS_ERASER || callback.tool == Tool.ERASER
-            if (wantErase) startErase(id, type, sx, sy)
-            else startDraw(id, type, sx, sy, event.getPressure(index), event.eventTime)
+            
+            if (wantErase) {
+                startErase(id, type, sx, sy)
+            } else if (callback.tool == Tool.LASSO) {
+                startLasso(sx, sy)
+            } else {
+                startDraw(id, type, sx, sy, event.getPressure(index), event.eventTime)
+            }
             return
         }
 
@@ -141,20 +154,31 @@ class InkInputHandler(context: Context, private val callback: Callback) {
             if (stylusOnly || touchCount >= 2) {
                 if (mode == Mode.DRAW) discardLive()
                 if (mode == Mode.ERASE) finishErase()
+                if (mode == Mode.LASSO) discardLasso()
                 startGesture()
                 if (mode == Mode.PAN && velocity == null) {
                     velocity = VelocityTracker.obtain()
                     velocity?.addMovement(event)
                 }
             } else {
-                if (callback.tool == Tool.ERASER) startErase(id, type, sx, sy)
-                else startDraw(id, type, sx, sy, event.getPressure(index), event.eventTime)
+                if (callback.tool == Tool.ERASER) {
+                    startErase(id, type, sx, sy)
+                } else if (callback.tool == Tool.LASSO) {
+                    startLasso(sx, sy)
+                } else {
+                    startDraw(id, type, sx, sy, event.getPressure(index), event.eventTime)
+                }
             }
             return
         }
 
-        if (callback.tool == Tool.ERASER) startErase(id, type, sx, sy)
-        else startDraw(id, type, sx, sy, event.getPressure(index), event.eventTime)
+        if (callback.tool == Tool.ERASER) {
+            startErase(id, type, sx, sy)
+        } else if (callback.tool == Tool.LASSO) {
+            startLasso(sx, sy)
+        } else {
+            startDraw(id, type, sx, sy, event.getPressure(index), event.eventTime)
+        }
     }
 
     private fun pointerMove(event: MotionEvent) {
@@ -195,6 +219,7 @@ class InkInputHandler(context: Context, private val callback: Callback) {
         when (mode) {
             Mode.DRAW -> if (lv != null && lv.pointerId == id) addLivePoint(lv, sx, sy, pressure, t)
             Mode.ERASE -> if (id == erasePointerId) eraseAt(sx, sy)
+            Mode.LASSO -> addLassoPoint(sx, sy)
             Mode.PAN, Mode.PINCH -> applyGesture()
             else -> {}
         }
@@ -213,6 +238,8 @@ class InkInputHandler(context: Context, private val callback: Callback) {
         } else if (mode == Mode.ERASE && id == erasePointerId) {
             stylusButtonHeld = false
             finishErase()
+        } else if (mode == Mode.LASSO) {
+            finishLasso()
         } else if (wasGesture) {
             val remaining = gesturePointers()
             val g = gesture
@@ -285,6 +312,7 @@ class InkInputHandler(context: Context, private val callback: Callback) {
         stylusButtonHeld = false
         discardLive()
         if (mode == Mode.ERASE) finishErase()
+        if (mode == Mode.LASSO) discardLasso()
         endGesture()
         pointers.clear()
         velocity?.recycle()
@@ -586,8 +614,109 @@ class InkInputHandler(context: Context, private val callback: Callback) {
         if (mode == Mode.PAN || mode == Mode.PINCH) mode = Mode.NONE
     }
 
+    private fun startLasso(sx: Float, sy: Float) {
+        mode = Mode.LASSO
+        selection = null
+        callback.onSelectionCreated(null)
+        lassoBuf = FloatBuf().also { it.add(sx, sy, 1f) }
+        callback.postInvalidateOnAnimation()
+    }
+
+    private fun addLassoPoint(sx: Float, sy: Float) {
+        lassoBuf?.add(sx, sy, 1f)
+        callback.postInvalidateOnAnimation()
+    }
+
+    private fun finishLasso() {
+        val buf = lassoBuf ?: return
+        if (buf.count < 3) {
+            discardLasso()
+            return
+        }
+
+        val polyX = FloatArray(buf.count)
+        val polyY = FloatArray(buf.count)
+        for (i in 0 until buf.count) {
+            polyX[i] = callback.toWorldX(buf.x(i))
+            polyY[i] = callback.toWorldY(buf.y(i))
+        }
+
+        val pageLists = callback.getPageLists() ?: return
+        val centerY = callback.toWorldY(callback.viewHeight / 2f)
+        val page = callback.pageOfY(centerY)
+        val list = pageLists.getOrNull(page) ?: return
+        
+        val selectedStrokes = ArrayList<Stroke>()
+        val bounds = android.graphics.RectF()
+
+        for (s in list) {
+            if (isStrokeInPolygon(s, polyX, polyY, callback.pageTop(page))) {
+                selectedStrokes.add(s)
+                val b = bboxOf(s)
+                if (selectedStrokes.size == 1) {
+                    bounds.set(b[0], b[1], b[2], b[3])
+                } else {
+                    bounds.union(b[0], b[1], b[2], b[3])
+                }
+            }
+        }
+
+        if (selectedStrokes.isNotEmpty()) {
+            val sel = Selection(page, selectedStrokes, bounds)
+            this.selection = sel
+            callback.onSelectionCreated(sel)
+        } else {
+            discardLasso()
+        }
+        
+        lassoBuf = null
+        mode = Mode.NONE
+        callback.postInvalidateOnAnimation()
+    }
+
+    private fun discardLasso() {
+        lassoBuf = null
+        selection = null
+        mode = Mode.NONE
+        callback.onSelectionCreated(null)
+        callback.postInvalidateOnAnimation()
+    }
+
+    /** Algorithme Point-in-Polygon (Ray Casting) pour chaque point du trait. */
+    private fun isStrokeInPolygon(s: Stroke, px: FloatArray, py: FloatArray, pageTop: Float): Boolean {
+        val pts = s.points
+        for (i in 0 until pts.size / 3) {
+            val x = pts[i * 3]
+            val y = pts[i * 3 + 1] + pageTop
+            if (!isPointInPolygon(x, y, px, py)) return false
+        }
+        return true
+    }
+
+    private fun isPointInPolygon(x: Float, y: Float, px: FloatArray, py: FloatArray): Boolean {
+        var inside = false
+        var j = px.size - 1
+        for (i in px.indices) {
+            if (((py[i] > y) != (py[j] > y)) &&
+                (x < (px[j] - px[i]) * (y - py[i]) / (py[j] - py[i]) + px[i])
+            ) {
+                inside = !inside
+            }
+            j = i
+        }
+        return inside
+    }
+
     private fun isStylus(type: Int): Boolean =
         type == PtrType.STYLUS || type == PtrType.STYLUS_ERASER
+
+    fun getLassoPoints(): FloatArray? = lassoBuf?.toArray()
+
+    fun clearSelection() {
+        selection = null
+        callback.onSelectionCreated(null)
+        callback.postInvalidateOnAnimation()
+    }
 
     private fun stylusButtonsHeld(event: MotionEvent): Boolean =
         (event.buttonState and

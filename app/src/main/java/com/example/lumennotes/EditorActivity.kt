@@ -1,32 +1,28 @@
 package com.example.lumennotes
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.RectF
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
+import android.widget.ImageButton
+import android.widget.PopupMenu
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import com.example.lumennotes.data.EraseHit
-import com.example.lumennotes.data.NoteMeta
-import com.example.lumennotes.data.NoteRepository
-import com.example.lumennotes.data.Prefs
-import com.example.lumennotes.data.Stroke
+import com.example.lumennotes.data.*
 import com.example.lumennotes.databinding.ActivityEditorBinding
-import com.example.lumennotes.ink.HistoryStack
-import com.example.lumennotes.ink.InkCanvasView
-import com.example.lumennotes.ink.InkOp
-import com.example.lumennotes.ink.InkInputHandler
+import com.example.lumennotes.ink.*
 import com.example.lumennotes.util.AppLog
-import java.util.concurrent.Executors
+import com.google.android.material.snackbar.Snackbar
+import java.util.Locale
 import kotlin.math.roundToInt
 
-/**
- * Éditeur : document de pages A4 empilées verticalement (scroll continu),
- * encre noire fluide, outils, undo/redo par page, sauvegarde automatique.
- */
 class EditorActivity : AppCompatActivity(), InkCanvasView.Host {
 
     private lateinit var binding: ActivityEditorBinding
@@ -34,11 +30,8 @@ class EditorActivity : AppCompatActivity(), InkCanvasView.Host {
     private val io = AppLog.loggedExecutor("editor-io")
     private val main = Handler(Looper.getMainLooper())
 
-
     private var noteId: String = ""
     private var meta: NoteMeta? = null
-
-    /** Page courante (suivie via le scroll). */
     private var pageIndex = 0
     private val pages = HashMap<Int, MutableList<Stroke>>()
     private val histories = HashMap<Int, HistoryStack>()
@@ -46,6 +39,11 @@ class EditorActivity : AppCompatActivity(), InkCanvasView.Host {
     private val saveHandler = Handler(Looper.getMainLooper())
     private var saveRunnable: Runnable? = null
     private var closed = false
+    private var selectionMenu: PopupMenu? = null
+
+    private val spellCheckers = HashMap<String, SpellCheckManager>()
+    private val recognitionHandler = Handler(Looper.getMainLooper())
+    private var recognitionRunnable: Runnable? = null
 
     private val accent by lazy { getColor(R.color.primary) }
     private val accentSoft by lazy { getColor(R.color.accent_soft) }
@@ -53,42 +51,89 @@ class EditorActivity : AppCompatActivity(), InkCanvasView.Host {
 
     private var selectedSize = 1
     private val penSizes = floatArrayOf(2.2f, 3.4f, 5.4f)
-    private lateinit var sizeButtons: List<android.widget.ImageButton>
-
-    /* --------------------------- hôte du moteur --------------------------- */
+    private lateinit var sizeButtons: List<ImageButton>
 
     override fun inputMode(): String = Prefs.inputMode(this)
 
     override fun onStrokeCommitted(stroke: Stroke, pageIndex: Int) {
-        val list = pages[pageIndex] ?: return
-        list.add(stroke)
+        pages[pageIndex]?.add(stroke)
         binding.ink.appendStroke(stroke, pageIndex)
         history(pageIndex).push(InkOp.Add(stroke))
         scheduleSave()
+        scheduleRecognition(pageIndex)
     }
 
     override fun onErase(items: List<EraseHit>, pageIndex: Int) {
         history(pageIndex).push(InkOp.Erase(items))
         binding.ink.invalidateCache()
         scheduleSave()
+        scheduleRecognition(pageIndex)
     }
 
     override fun onZoomChanged(scale: Float) {
         binding.zoomChip.text = getString(R.string.zoom_percent, (scale * 100).roundToInt())
     }
 
-    override fun onPageChanged(newIndex: Int) {
-        if (newIndex == pageIndex) {
+    override fun onPageChanged(pageIndex: Int) {
+        if (pageIndex == this.pageIndex) {
             updatePageUi()
             return
         }
-        flushSave()               // sécurise la page qu'on quitte
-        pageIndex = newIndex
+        flushSave()
+        this.pageIndex = pageIndex
         updatePageUi()
         updateHistoryButtons()
+        updateLanguageUi()
     }
 
-    /* ------------------------------ création ------------------------------ */
+    override fun onSelectionChanged(selection: Selection?) {
+        main.post {
+            selectionMenu?.dismiss()
+            if (selection != null) {
+                showSelectionMenu(selection)
+            }
+        }
+    }
+
+    private fun showSelectionMenu(sel: Selection) {
+        val menu = PopupMenu(this, binding.ink)
+        menu.menu.add("Transcript").setOnMenuItemClickListener {
+            transcribeSelection(sel)
+            true
+        }
+        selectionMenu = menu
+        menu.show()
+    }
+
+    private fun transcribeSelection(sel: Selection) {
+        val lang = meta?.getLanguageForPage(sel.pageIndex) ?: "fr-FR"
+        setSaveState(R.string.saving)
+        HandwritingManager.transcribe(
+            lang,
+            sel.strokes,
+            onResult = { text: String ->
+                main.post {
+                    if (text.isNotBlank()) {
+                        Snackbar.make(binding.root, text, Snackbar.LENGTH_LONG)
+                            .setAction("Copy") {
+                                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("Transcription", text))
+                            }
+                            .show()
+                    } else {
+                        Snackbar.make(binding.root, "Transcription vide", Snackbar.LENGTH_SHORT).show()
+                    }
+                    setSaveState(R.string.saved)
+                }
+            },
+            onError = { e: Exception ->
+                main.post {
+                    Snackbar.make(binding.root, "Erreur: ${e.message}", Snackbar.LENGTH_SHORT).show()
+                    setSaveState(R.string.saved)
+                }
+            }
+        )
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -121,11 +166,16 @@ class EditorActivity : AppCompatActivity(), InkCanvasView.Host {
         binding.btnSizeBold.setOnClickListener { selectSize(2) }
 
         binding.btnEraser.setOnClickListener {
-            binding.ink.tool =
-                if (binding.ink.tool == InkInputHandler.Tool.ERASER) InkInputHandler.Tool.PEN
-                else InkInputHandler.Tool.ERASER
+            binding.ink.tool = if (binding.ink.tool == InkInputHandler.Tool.ERASER) InkInputHandler.Tool.PEN else InkInputHandler.Tool.ERASER
             updateToolUi()
         }
+
+        binding.btnLasso.setOnClickListener {
+            binding.ink.tool = if (binding.ink.tool == InkInputHandler.Tool.LASSO) InkInputHandler.Tool.PEN else InkInputHandler.Tool.LASSO
+            updateToolUi()
+        }
+
+        binding.btnLanguage.setOnClickListener { showLanguageMenu() }
 
         binding.btnPrevPage.setOnClickListener { binding.ink.scrollToPage(pageIndex - 1) }
         binding.btnNextPage.setOnClickListener { binding.ink.scrollToPage(pageIndex + 1) }
@@ -146,8 +196,6 @@ class EditorActivity : AppCompatActivity(), InkCanvasView.Host {
         })
     }
 
-    /* ----------------------------- chargement ----------------------------- */
-
     private fun load() {
         io.execute {
             val m = repo.getMeta(noteId)
@@ -156,25 +204,22 @@ class EditorActivity : AppCompatActivity(), InkCanvasView.Host {
                 return@execute
             }
             meta = m
-            // toutes les pages sont chargées d'un coup (document continu)
             val lists = ArrayList<MutableList<Stroke>>(m.pageCount)
             for (i in 0 until m.pageCount) {
                 val l = repo.loadPage(m.id, i)
                 lists.add(l)
                 pages[i] = l
             }
-            AppLog.log("editor", "note introuvable ou corrompue ($noteId) → fermeture")
             main.post {
                 binding.titleInput.setText(m.title)
                 binding.ink.setDocument(lists)
                 binding.ink.scrollToPage(0, smooth = false)
                 updatePageUi()
                 updateHistoryButtons()
+                updateLanguageUi()
             }
         }
     }
-
-    /* ------------------------------- pages -------------------------------- */
 
     private fun updatePageUi() {
         val m = meta ?: return
@@ -195,6 +240,7 @@ class EditorActivity : AppCompatActivity(), InkCanvasView.Host {
         binding.ink.scrollToPage(m.pageCount - 1)
         updatePageUi()
         updateHistoryButtons()
+        updateLanguageUi()
         io.execute {
             repo.savePage(m.id, m.pageCount - 1, list)
             m.updatedAt = System.currentTimeMillis()
@@ -202,16 +248,109 @@ class EditorActivity : AppCompatActivity(), InkCanvasView.Host {
         }
     }
 
-    /* ----------------------------- historique ----------------------------- */
+    private fun showLanguageMenu() {
+        val menu = PopupMenu(this, binding.btnLanguage)
+        menu.menu.add("Français").setOnMenuItemClickListener { setPageLanguage("fr-FR"); true }
+        menu.menu.add("English").setOnMenuItemClickListener { setPageLanguage("en-US"); true }
+        menu.menu.add("Español").setOnMenuItemClickListener { setPageLanguage("es-ES"); true }
+        menu.show()
+    }
 
-    private fun history(page: Int): HistoryStack =
-        histories.getOrPut(page) {
-            HistoryStack().also { it.onChanged = { updateHistoryButtonsSafe() } }
+    private fun setPageLanguage(lang: String) {
+        meta?.setLanguageForPage(pageIndex, lang)
+        updateLanguageUi()
+        scheduleSave()
+        scheduleRecognition(pageIndex)
+    }
+
+    private fun updateLanguageUi() {
+        val lang = meta?.getLanguageForPage(pageIndex) ?: "fr-FR"
+        binding.btnLanguage.text = lang.substring(0, 2).uppercase()
+    }
+
+    private fun scheduleRecognition(page: Int) {
+        recognitionHandler.removeCallbacksAndMessages(null)
+        recognitionRunnable = Runnable { runPageRecognition(page) }
+        recognitionHandler.postDelayed(recognitionRunnable!!, 1200)
+    }
+
+    private fun runPageRecognition(page: Int) {
+        val strokes = pages[page] ?: return
+        if (strokes.isEmpty()) {
+            binding.ink.clearPageSpellFeedback(page)
+            return
         }
 
-    private fun updateHistoryButtonsSafe() {
-        main.post { updateHistoryButtons() }
+        val lang = meta?.getLanguageForPage(page) ?: "fr-FR"
+        val locale = Locale.forLanguageTag(lang)
+        val spellChecker = spellCheckers.getOrPut(lang) { SpellCheckManager(this, locale) }
+
+        HandwritingManager.transcribe(lang, strokes, onResult = { fullText ->
+            if (fullText.isBlank()) {
+                main.post { binding.ink.clearPageSpellFeedback(page) }
+                return@transcribe
+            }
+
+            spellChecker.checkSpelling(fullText) { misspelledWords ->
+                main.post {
+                    val globalBox = calculateBoundingBox(strokes)
+                    val wordWidth = globalBox.width()
+                    val feedback = mutableListOf<InkCanvasView.SpellFeedback>()
+
+                    // Debug: Identification de tous les mots (corrects et incorrects)
+                    // On split par espace pour avoir une idée de la structure
+                    val words = fullText.split(Regex("\\s+")).filter { it.isNotBlank() }
+                    var currentSearchIndex = 0
+
+                    for (wordText in words) {
+                        val offset = fullText.indexOf(wordText, currentSearchIndex)
+                        if (offset == -1) continue
+                        currentSearchIndex = offset + wordText.length
+                        
+                        val length = wordText.length
+                        // Un mot est une erreur s'il est contenu dans la liste des mots mal orthographiés
+                        val isError = misspelledWords.any { 
+                            (it.offset >= offset && it.offset < offset + length) ||
+                            (offset >= it.offset && offset < it.offset + it.length)
+                        }
+                        
+                        val ratio = offset.toFloat() / fullText.length
+                        val endRatio = (offset + length).toFloat() / fullText.length
+                        val left = globalBox.left + ratio * wordWidth
+                        val right = globalBox.left + endRatio * wordWidth
+                        
+                        feedback.add(InkCanvasView.SpellFeedback(
+                            wordText, 
+                            RectF(left, globalBox.top, right, globalBox.bottom), 
+                            isError
+                        ))
+                    }
+                    
+                    AppLog.log("spellcheck", "Page $page: ${feedback.size} mots trouvés, ${misspelledWords.size} erreurs")
+                    
+                    binding.ink.setPageSpellFeedback(page, feedback)
+                }
+            }
+        }, onError = { /* ignorer */ })
     }
+
+    private fun calculateBoundingBox(strokes: List<Stroke>): RectF {
+        val box = RectF(Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE)
+        for (s in strokes) {
+            val pts = s.points
+            for (i in 0 until pts.size / 3) {
+                val x = pts[i * 3]
+                val y = pts[i * 3 + 1]
+                box.left = minOf(box.left, x)
+                box.top = minOf(box.top, y)
+                box.right = maxOf(box.right, x)
+                box.bottom = maxOf(box.bottom, y)
+            }
+        }
+        return box
+    }
+
+    private fun history(page: Int): HistoryStack = histories.getOrPut(page) { HistoryStack().also { it.onChanged = { main.post { updateHistoryButtons() } } } }
 
     private fun updateHistoryButtons() {
         val h = histories[pageIndex]
@@ -223,44 +362,21 @@ class EditorActivity : AppCompatActivity(), InkCanvasView.Host {
 
     private fun applyHistoryOp(redo: Boolean) {
         val op = if (redo) history(pageIndex).redoOp() else history(pageIndex).undoOp()
-        if (op == null) {
-            updateHistoryButtons()
-            return
-        }
+        if (op == null) return
         val arr = pages[pageIndex] ?: return
         when (op) {
-            is InkOp.Add -> {
-                if (redo) {
-                    if (!arr.contains(op.stroke)) arr.add(op.stroke)
-                } else {
-                    val i = arr.indexOf(op.stroke)
-                    if (i >= 0) arr.removeAt(i)
-                }
-            }
-            is InkOp.Erase -> {
-                if (redo) {
-                    for (hit in op.items) {
-                        val i = arr.indexOf(hit.stroke)
-                        if (i >= 0) arr.removeAt(i)
-                    }
-                } else {
-                    for (hit in op.items.sortedBy { it.index }) {
-                        val at = if (hit.index > arr.size) arr.size else hit.index
-                        arr.add(at, hit.stroke)
-                    }
-                }
-            }
+            is InkOp.Add -> if (redo) { if (!arr.contains(op.stroke)) arr.add(op.stroke) } else { arr.remove(op.stroke) }
+            is InkOp.Erase -> if (redo) { op.items.forEach { arr.remove(it.stroke) } } else { op.items.sortedBy { it.index }.forEach { arr.add(if (it.index > arr.size) arr.size else it.index, it.stroke) } }
         }
         binding.ink.invalidateCache()
         scheduleSave()
+        scheduleRecognition(pageIndex)
     }
-
-    /* ------------------------------ outils -------------------------------- */
 
     private fun selectSize(i: Int) {
         selectedSize = i
         binding.ink.penSize = penSizes[i]
-        if (binding.ink.tool == InkInputHandler.Tool.ERASER) {
+        if (binding.ink.tool == InkInputHandler.Tool.ERASER || binding.ink.tool == InkInputHandler.Tool.LASSO) {
             binding.ink.tool = InkInputHandler.Tool.PEN
         }
         updateToolUi()
@@ -268,29 +384,21 @@ class EditorActivity : AppCompatActivity(), InkCanvasView.Host {
 
     private fun updateToolUi() {
         val eraserActive = binding.ink.tool == InkInputHandler.Tool.ERASER
-        binding.btnEraser.imageTintList =
-            ColorStateList.valueOf(if (eraserActive) accent else iconDark)
-        binding.btnEraser.backgroundTintList =
-            ColorStateList.valueOf(if (eraserActive) accentSoft else Color.TRANSPARENT)
+        val lassoActive = binding.ink.tool == InkInputHandler.Tool.LASSO
+        binding.btnEraser.imageTintList = ColorStateList.valueOf(if (eraserActive) accent else iconDark)
+        binding.btnEraser.backgroundTintList = ColorStateList.valueOf(if (eraserActive) accentSoft else Color.TRANSPARENT)
+        binding.btnLasso.imageTintList = ColorStateList.valueOf(if (lassoActive) accent else iconDark)
+        binding.btnLasso.backgroundTintList = ColorStateList.valueOf(if (lassoActive) accentSoft else Color.TRANSPARENT)
         sizeButtons.forEach { it.imageTintList = ColorStateList.valueOf(iconDark) }
-        if (!eraserActive) {
-            sizeButtons[selectedSize].imageTintList = ColorStateList.valueOf(accent)
-        }
+        if (!eraserActive && !lassoActive) sizeButtons[selectedSize].imageTintList = ColorStateList.valueOf(accent)
     }
 
-    /* ---------------------------- sauvegarde ------------------------------ */
-
-    private fun setSaveState(resId: Int) {
-        binding.saveState.text = getString(resId)
-        binding.saveState.visibility = TextView.VISIBLE
-    }
+    private fun setSaveState(resId: Int) { binding.saveState.text = getString(resId); binding.saveState.visibility = TextView.VISIBLE }
 
     private fun scheduleSave() {
         if (closed) return
         saveRunnable?.let { saveHandler.removeCallbacks(it) }
-        val r = Runnable { flushSave() }
-        saveRunnable = r
-        saveHandler.postDelayed(r, 350)
+        saveRunnable = Runnable { flushSave() }.also { saveHandler.postDelayed(it, 350) }
     }
 
     private fun flushSave() {
@@ -299,12 +407,8 @@ class EditorActivity : AppCompatActivity(), InkCanvasView.Host {
         setSaveState(R.string.saving)
         val idx = pageIndex
         io.execute {
-            repo.savePage(m.id, idx, list)
-            m.updatedAt = System.currentTimeMillis()
-            repo.saveMeta(m)
-            main.post {
-                if (!closed) setSaveState(R.string.saved)
-            }
+            repo.savePage(m.id, idx, list); m.updatedAt = System.currentTimeMillis(); repo.saveMeta(m)
+            main.post { if (!closed) setSaveState(R.string.saved) }
         }
     }
 
@@ -312,31 +416,11 @@ class EditorActivity : AppCompatActivity(), InkCanvasView.Host {
         if (closed) return
         closed = true
         saveRunnable?.let { saveHandler.removeCallbacks(it) }
-        meta?.let { m ->
-            pages[pageIndex]?.let { list ->
-                val idx = pageIndex
-                io.execute {
-                    repo.savePage(m.id, idx, list)
-                    m.updatedAt = System.currentTimeMillis()
-                    repo.saveMeta(m)
-                }
-            }
-        }
+        meta?.let { m -> pages[pageIndex]?.let { list -> val idx = pageIndex; io.execute { repo.savePage(m.id, idx, list); m.updatedAt = System.currentTimeMillis(); repo.saveMeta(m) } } }
+        spellCheckers.values.forEach { it.close() }
         finish()
     }
 
-    /* ---------------------------- cycle de vie ---------------------------- */
-
-    override fun onPause() {
-        super.onPause()
-        if (!closed) {
-            saveRunnable?.let { saveHandler.removeCallbacks(it) }
-            flushSave()
-        }
-    }
-
-    override fun onDestroy() {
-        saveRunnable?.let { saveHandler.removeCallbacks(it) }
-        super.onDestroy()
-    }
+    override fun onPause() { super.onPause(); if (!closed) { saveRunnable?.let { saveHandler.removeCallbacks(it) }; flushSave() } }
+    override fun onDestroy() { saveRunnable?.let { saveHandler.removeCallbacks(it) }; super.onDestroy() }
 }

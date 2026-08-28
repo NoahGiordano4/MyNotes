@@ -45,7 +45,13 @@ class LongBuf(initialPoints: Int = 256) {
     fun toArray(): LongArray = a.copyOf(size)
 }
 
-enum class Mode { NONE, DRAW, ERASE, PAN, PINCH }
+enum class Mode { NONE, DRAW, ERASE, PAN, PINCH, LASSO }
+
+class Selection(
+    val pageIndex: Int,
+    val strokes: List<com.example.lumennotes.data.Stroke>,
+    val bounds: android.graphics.RectF
+)
 
 object PtrType {
     const val TOUCH = 0

@@ -2,11 +2,7 @@ package com.example.lumennotes.ink
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.RectF
+import android.graphics.*
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -36,6 +32,7 @@ class InkCanvasView @JvmOverloads constructor(
         fun onErase(items: List<EraseHit>, pageIndex: Int)
         fun onZoomChanged(scale: Float)
         fun onPageChanged(pageIndex: Int)
+        fun onSelectionChanged(selection: Selection?)
     }
 
     companion object {
@@ -61,6 +58,7 @@ class InkCanvasView @JvmOverloads constructor(
     override var tool: InkInputHandler.Tool = InkInputHandler.Tool.PEN
         set(value) {
             field = value
+            inputHandler.clearSelection()
             postInvalidateOnAnimation()
         }
 
@@ -101,6 +99,35 @@ class InkCanvasView @JvmOverloads constructor(
         color = 0x8C0F172A.toInt()
     }
 
+    private val spellErrorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2f * density
+        color = Color.RED
+        pathEffect = DashPathEffect(floatArrayOf(6f, 6f), 0f)
+    }
+
+    private val spellCorrectPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.5f * density
+        color = 0xFF22C55E.toInt() // Green
+    }
+
+    data class SpellFeedback(val word: String, val bounds: RectF, val isError: Boolean)
+    private val pageSpellFeedback = HashMap<Int, MutableList<SpellFeedback>>()
+
+    private val lassoPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2f * density
+        color = 0xFF3B82F6.toInt()
+        pathEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
+    }
+
+    private val selectionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.5f * density
+        color = 0x803B82F6.toInt()
+    }
+
     private val bboxCache = HashMap<Stroke, FloatArray>()
     private var lastReportedZoom = -1f
     private var scrollAnim: android.animation.ValueAnimator? = null
@@ -124,6 +151,7 @@ class InkCanvasView @JvmOverloads constructor(
     override fun afterZoom() = afterZoomInternal()
     override fun notifyPageIfChanged() = notifyPageIfChangedInternal()
     override fun overlayReset() = overlayResetInternal()
+    override fun onSelectionCreated(selection: Selection?) { host?.onSelectionChanged(selection) }
 
     // ---------------------------- API publique ------------------------------
 
@@ -260,14 +288,54 @@ class InkCanvasView @JvmOverloads constructor(
                 }
             }
             pageCache.request(p, res, urgent = (p == currentPage), rect = vr, withFull = (p in p0..p1))
+
+            // Feedback d'orthographe (Debug)
+            pageSpellFeedback[p]?.let { feedbacks ->
+                for (fb in feedbacks) {
+                    val b = fb.bounds
+                    val y = topS + b.bottom * scale + 2f * density
+                    canvas.drawLine(
+                        tx + b.left * scale, y, 
+                        tx + b.right * scale, y, 
+                        if (fb.isError) spellErrorPaint else spellCorrectPaint
+                    )
+                }
+            }
         }
         val lv = inputHandler.live
         if (lv != null && lv.pts.count > 0) drawLive(canvas, lv)
+
+        // curseur de la gomme
         val currentPos = if (inputHandler.mode == Mode.ERASE) inputHandler.erasePos else inputHandler.hoverPos
         val isEraserActive = (tool == InkInputHandler.Tool.ERASER && inputHandler.mode == Mode.NONE) || (inputHandler.mode == Mode.ERASE && inputHandler.eraseType != PtrType.TOUCH)
         if ((isEraserActive || (inputHandler.stylusButtonHeld && inputHandler.mode == Mode.NONE)) && currentPos != null) {
             eraserCursorPaint.strokeWidth = 1.5f * density
             canvas.drawCircle(currentPos[0], currentPos[1], eraseRadiusPx, eraserCursorPaint)
+        }
+
+        // lasso en cours
+        val lp = inputHandler.getLassoPoints()
+        if (lp != null && lp.size >= 6) {
+            val path = Path()
+            path.moveTo(lp[0], lp[1])
+            for (i in 1 until lp.size / 3) {
+                path.lineTo(lp[i * 3], lp[i * 3 + 1])
+            }
+            canvas.drawPath(path, lassoPaint)
+        }
+
+        // sélection active
+        val sel = inputHandler.selection
+        if (sel != null) {
+            val b = sel.bounds
+            val topS = ty + pageTop(sel.pageIndex) * scale
+            val r = RectF(
+                tx + b.left * scale - 6f * density,
+                topS + b.top * scale - 6f * density,
+                tx + b.right * scale + 6f * density,
+                topS + b.bottom * scale + 6f * density
+            )
+            canvas.drawRoundRect(r, 12f * density, 12f * density, selectionPaint)
         }
     }
 
@@ -292,6 +360,16 @@ class InkCanvasView @JvmOverloads constructor(
         canvas.withTranslation(tx, ty) { withScale(scale, scale) { withTranslation(0f, -pageTop(lv.page)) {
             StrokePainter.paintPoints(this, strokePaint, lv.color, lv.size, lv.pts.raw(), lv.pts.count, max(0, overlayCount - LIVE_TAIL_OVERLAP))
         } } }
+    }
+
+    fun setPageSpellFeedback(page: Int, feedback: List<SpellFeedback>) {
+        pageSpellFeedback[page] = feedback.toMutableList()
+        postInvalidateOnAnimation()
+    }
+
+    fun clearPageSpellFeedback(page: Int) {
+        pageSpellFeedback.remove(page)
+        postInvalidateOnAnimation()
     }
 
     private fun overlayResetInternal() { overlay?.eraseColor(Color.TRANSPARENT); overlayCount = 0 }
