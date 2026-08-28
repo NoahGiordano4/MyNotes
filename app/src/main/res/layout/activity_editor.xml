@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:fitsSystemWindows="true"
+    android:orientation="vertical">
+
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/surface"
+        android:elevation="2dp"
+        android:fillViewport="true"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp">
+
+            <ImageButton
+                android:id="@+id/btnClose"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/close_note"
+                android:src="@drawable/ic_close" />
+
+            <EditText
+                android:id="@+id/titleInput"
+                android:layout_width="170dp"
+                android:layout_height="wrap_content"
+                android:background="@null"
+                android:hint="@string/title_hint"
+                android:imeOptions="actionDone"
+                android:inputType="text"
+                android:maxLines="1"
+                android:textColor="@color/ink"
+                android:textColorHint="@color/gray"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/saveState"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxWidth="90dp"
+                android:maxLines="1"
+                android:textColor="@color/gray"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
+            <View
+                android:layout_width="1dp"
+                android:layout_height="24dp"
+                android:layout_marginStart="6dp"
+                android:layout_marginEnd="6dp"
+                android:background="@color/border" />
+
+            <ImageButton
+                android:id="@+id/btnFit"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/fit_page"
+                android:src="@drawable/ic_fit" />
+
+            <ImageButton
+                android:id="@+id/btnUndo"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/undo"
+                android:src="@drawable/ic_undo" />
+
+            <ImageButton
+                android:id="@+id/btnRedo"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/redo"
+                android:src="@drawable/ic_redo" />
+
+            <View
+                android:layout_width="1dp"
+                android:layout_height="24dp"
+                android:layout_marginStart="6dp"
+                android:layout_marginEnd="6dp"
+                android:background="@color/border" />
+
+            <ImageButton
+                android:id="@+id/btnSizeFine"
+                android:layout_width="40dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/pen_fine"
+                android:src="@drawable/ic_dot_fine" />
+
+            <ImageButton
+                android:id="@+id/btnSizeMedium"
+                android:layout_width="40dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/pen_medium"
+                android:src="@drawable/ic_dot_medium" />
+
+            <ImageButton
+                android:id="@+id/btnSizeBold"
+                android:layout_width="40dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/pen_bold"
+                android:src="@drawable/ic_dot_bold" />
+
+            <ImageButton
+                android:id="@+id/btnEraser"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:contentDescription="@string/eraser"
+                android:src="@drawable/ic_eraser" />
+
+            <View
+                android:layout_width="1dp"
+                android:layout_height="24dp"
+                android:layout_marginStart="6dp"
+                android:layout_marginEnd="6dp"
+                android:background="@color/border" />
+
+            <ImageButton
+                android:id="@+id/btnPrevPage"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/prev_page"
+                android:src="@drawable/ic_chevron_left" />
+
+            <TextView
+                android:id="@+id/pageLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="48dp"
+                android:gravity="center"
+                android:textColor="@color/gray"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <ImageButton
+                android:id="@+id/btnNextPage"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/next_page"
+                android:src="@drawable/ic_chevron_right" />
+
+            <ImageButton
+                android:id="@+id/btnAddPage"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/add_page"
+                android:src="@drawable/ic_note_add" />
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <com.example.lumennotes.ink.InkCanvasView
+            android:id="@+id/ink"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <TextView
+            android:id="@+id/zoomChip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="14dp"
+            android:background="@drawable/bg_zoom_chip"
+            android:clickable="true"
+            android:focusable="true"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="7dp"
+            android:paddingBottom="7dp"
+            android:textColor="@color/icon_dark"
+            android:textSize="12.5sp"
+            android:textStyle="bold" />
+    </FrameLayout>
+</LinearLayout>
