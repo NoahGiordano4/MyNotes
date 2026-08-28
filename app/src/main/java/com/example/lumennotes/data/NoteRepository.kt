@@ -150,18 +150,28 @@ class NoteRepository(context: Context) {
 
     private fun readMeta(dir: File): NoteMeta? = try {
         val j = JSONObject(File(dir, "meta.json").readText())
-        NoteMeta(
+        val meta = NoteMeta(
             id = j.getString("id"),
             title = j.optString("title", "Note"),
             createdAt = j.optLong("createdAt", 0L),
             updatedAt = j.optLong("updatedAt", 0L),
             pageCount = j.optInt("pageCount", 1).coerceAtLeast(1)
         )
+        val langs = j.optJSONArray("pageLanguages")
+        if (langs != null) {
+            for (i in 0 until langs.length()) {
+                meta.pageLanguages.add(langs.getString(i))
+            }
+        }
+        meta
     } catch (e: Exception) {
         null
     }
 
     private fun writeMeta(dir: File, meta: NoteMeta) {
+        val langs = JSONArray()
+        for (l in meta.pageLanguages) langs.put(l)
+        
         writeAtomic(
             File(dir, "meta.json"),
             JSONObject()
@@ -170,6 +180,7 @@ class NoteRepository(context: Context) {
                 .put("createdAt", meta.createdAt)
                 .put("updatedAt", meta.updatedAt)
                 .put("pageCount", meta.pageCount)
+                .put("pageLanguages", langs)
                 .toString()
         )
     }

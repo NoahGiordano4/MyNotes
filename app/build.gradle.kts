@@ -25,6 +25,15 @@ android {
             }
         }
     }
+
+    packaging {
+        jniLibs {
+            // Indispensable pour le support 16 KB : les libs natives 
+            // doivent être stockées non compressées et alignées.
+            useLegacyPackaging = false
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -40,6 +49,10 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.material)
     implementation(libs.androidx.recyclerview)
+
+    // ML Kit Digital Ink Recognition (pour la transcription)
+    implementation("com.google.mlkit:digital-ink-recognition:19.0.0")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
