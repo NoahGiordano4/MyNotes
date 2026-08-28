@@ -18,6 +18,7 @@ import com.example.lumennotes.databinding.ActivityEditorBinding
 import com.example.lumennotes.ink.HistoryStack
 import com.example.lumennotes.ink.InkCanvasView
 import com.example.lumennotes.ink.InkOp
+import com.example.lumennotes.ink.InkInputHandler
 import com.example.lumennotes.util.AppLog
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
@@ -121,8 +122,8 @@ class EditorActivity : AppCompatActivity(), InkCanvasView.Host {
 
         binding.btnEraser.setOnClickListener {
             binding.ink.tool =
-                if (binding.ink.tool == InkCanvasView.Tool.ERASER) InkCanvasView.Tool.PEN
-                else InkCanvasView.Tool.ERASER
+                if (binding.ink.tool == InkInputHandler.Tool.ERASER) InkInputHandler.Tool.PEN
+                else InkInputHandler.Tool.ERASER
             updateToolUi()
         }
 
@@ -259,14 +260,14 @@ class EditorActivity : AppCompatActivity(), InkCanvasView.Host {
     private fun selectSize(i: Int) {
         selectedSize = i
         binding.ink.penSize = penSizes[i]
-        if (binding.ink.tool == InkCanvasView.Tool.ERASER) {
-            binding.ink.tool = InkCanvasView.Tool.PEN
+        if (binding.ink.tool == InkInputHandler.Tool.ERASER) {
+            binding.ink.tool = InkInputHandler.Tool.PEN
         }
         updateToolUi()
     }
 
     private fun updateToolUi() {
-        val eraserActive = binding.ink.tool == InkCanvasView.Tool.ERASER
+        val eraserActive = binding.ink.tool == InkInputHandler.Tool.ERASER
         binding.btnEraser.imageTintList =
             ColorStateList.valueOf(if (eraserActive) accent else iconDark)
         binding.btnEraser.backgroundTintList =

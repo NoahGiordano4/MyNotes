@@ -31,7 +31,7 @@ object StrokePainter {
     /** Largeur de plume pour une pression donnée. */
     fun widthFor(size: Float, pressure: Float): Float {
         val p = if (pressure < 0f) 0f else if (pressure > 1f) 1f else pressure
-        return (size * (0.42f + 0.95f * p)).coerceAtLeast(0.8f)
+        return (size * (0.42f + (0.95f * p))).coerceAtLeast(0.8f)
     }
 
     fun paintStroke(c: Canvas, paint: Paint, stroke: Stroke) {
@@ -52,7 +52,7 @@ object StrokePainter {
         size: Float,
         pts: FloatArray,
         count: Int,
-        from: Int = 0
+        from: Int = 0,
     ) {
         if (count <= 0 || pts.size < count * 3) return
         val start = if (from > 0) from else 0
@@ -81,9 +81,9 @@ object StrokePainter {
         while (pass < 2) {
             var i = 1
             while (i < n - 1) {
-                w.xs[i] = (w.xs[i - 1] + 2f * w.xs[i] + w.xs[i + 1]) * 0.25f
-                w.ys[i] = (w.ys[i - 1] + 2f * w.ys[i] + w.ys[i + 1]) * 0.25f
-                w.ps[i] = (w.ps[i - 1] + 2f * w.ps[i] + w.ps[i + 1]) * 0.25f
+                w.xs[i] = (w.xs[i - 1] + (2f * w.xs[i]) + w.xs[i + 1]) * 0.25f
+                w.ys[i] = (w.ys[i - 1] + (2f * w.ys[i]) + w.ys[i + 1]) * 0.25f
+                w.ps[i] = (w.ps[i - 1] + (2f * w.ps[i]) + w.ps[i + 1]) * 0.25f
                 i++
             }
             pass++
@@ -112,10 +112,10 @@ object StrokePainter {
                 ny = dx / len
             }
             val hw = widthFor(size, w.ps[i]) * 0.5f
-            w.lx[i] = w.xs[i] + nx * hw
-            w.ly[i] = w.ys[i] + ny * hw
-            w.rx[i] = w.xs[i] - nx * hw
-            w.ry[i] = w.ys[i] - ny * hw
+            w.lx[i] = w.xs[i] + (nx * hw)
+            w.ly[i] = w.ys[i] + (ny * hw)
+            w.rx[i] = w.xs[i] - (nx * hw)
+            w.ry[i] = w.ys[i] - (ny * hw)
             i++
         }
 
@@ -131,8 +131,8 @@ object StrokePainter {
             val x1 = w.lx[k]; val y1 = w.ly[k]
             val x2 = w.lx[k + 1]; val y2 = w.ly[k + 1]
             p.cubicTo(
-                x1 + (x2 - w.lx[a]) / 6f, y1 + (y2 - w.ly[a]) / 6f,
-                x2 - (w.lx[b] - x1) / 6f, y2 - (w.ly[b] - y1) / 6f,
+                x1 + ((x2 - w.lx[a]) / 6f), y1 + ((y2 - w.ly[a]) / 6f),
+                x2 - ((w.lx[b] - x1) / 6f), y2 - ((w.ly[b] - y1) / 6f),
                 x2, y2
             )
             k++
@@ -144,8 +144,8 @@ object StrokePainter {
             val x1 = w.rx[m]; val y1 = w.ry[m]
             val x2 = w.rx[m - 1]; val y2 = w.ry[m - 1]
             p.cubicTo(
-                x1 + (x2 - w.rx[a]) / 6f, y1 + (y2 - w.ry[a]) / 6f,
-                x2 - (w.rx[b] - x1) / 6f, y2 - (w.ry[b] - y1) / 6f,
+                x1 + ((x2 - w.rx[a]) / 6f), y1 + ((y2 - w.ry[a]) / 6f),
+                x2 - ((w.rx[b] - x1) / 6f), y2 - ((w.ry[b] - y1) / 6f),
                 x2, y2
             )
             m--

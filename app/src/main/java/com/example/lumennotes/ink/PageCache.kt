@@ -10,6 +10,8 @@ import android.os.HandlerThread
 import android.os.Looper
 import com.example.lumennotes.data.Stroke
 import androidx.core.graphics.createBitmap
+import androidx.core.graphics.withScale
+import androidx.core.graphics.withTranslation
 import kotlin.math.ceil
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -39,7 +41,7 @@ class PageCache(
     private val pageBudgetPx: Float = 10_000_000f,
     private val tileBudgetPx: Float = 12_000_000f,
     private val fullCap: Int = 3,
-    private val previewCap: Int = 5
+    private val previewCap: Int = 5,
 ) {
 
     /**
@@ -54,7 +56,7 @@ class PageCache(
         val res: Float,
         val preview: Boolean,
         val rect: RectF?,
-        val epoch: Long
+        val epoch: Long,
     )
 
     /** Verrou exposé : la vue y synchronise ses mutations de listes. */
@@ -119,7 +121,7 @@ class PageCache(
         res: Float,
         urgent: Boolean = false,
         rect: RectF? = null,
-        withFull: Boolean = true
+        withFull: Boolean = true,
     ) {
         val visRect = rect ?: RectF(0f, 0f, pageW, pageH)
         val pageMax = sqrt(pageBudgetPx / (pageW * pageH))
@@ -217,11 +219,15 @@ class PageCache(
             val bb = bboxOf(stroke)
             if (e.rect == null || RectF.intersects(e.rect, bb)) {
                 val canvas = Canvas(e.bitmap)
-                canvas.save()
-                canvas.scale(e.res, e.res)
-                if (e.rect != null) canvas.translate(-e.rect.left, -e.rect.top)
-                StrokePainter.paintStroke(canvas, paint, stroke)
-                canvas.restore()
+                canvas.withScale(e.res, e.res) {
+                    if (e.rect != null) {
+                        withTranslation(-e.rect.left, -e.rect.top) {
+                            StrokePainter.paintStroke(this, paint, stroke)
+                        }
+                    } else {
+                        StrokePainter.paintStroke(this, paint, stroke)
+                    }
+                }
             }
             notifyPage(page)
         }
@@ -298,19 +304,19 @@ class PageCache(
         val bmp = synchronized(syncLock) { poolAcquire(w, h) }
         bmp.eraseColor(Color.TRANSPARENT)
         val canvas = Canvas(bmp)
-        canvas.save()
-        canvas.scale(res, res)
-        canvas.translate(-area.left, -area.top)
-        for (s in snapshot) {
-            if (!preview) {
-                val bb = bboxOf(s)
-                if (bb.right < area.left || bb.left > area.right ||
-                    bb.bottom < area.top || bb.top > area.bottom
-                ) continue
+        canvas.withScale(res, res) {
+            withTranslation(-area.left, -area.top) {
+                for (s in snapshot) {
+                    if (!preview) {
+                        val bb = bboxOf(s)
+                        if (bb.right < area.left || bb.left > area.right ||
+                            bb.bottom < area.top || bb.top > area.bottom
+                        ) continue
+                    }
+                    StrokePainter.paintStroke(this, paint, s)
+                }
             }
-            StrokePainter.paintStroke(canvas, paint, s)
         }
-        canvas.restore()
 
         val entry = Entry(page, bmp, res, preview, if (preview) null else RectF(area), epoch)
         synchronized(syncLock) {
