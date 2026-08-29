@@ -42,6 +42,7 @@ class EditorActivity : AppCompatActivity(), InkCanvasView.Host {
     private var selectionMenu: PopupMenu? = null
 
     private val spellCheckers = HashMap<String, SpellCheckManager>()
+    private val hunspellCheckers = HashMap<String, HunspellSpellChecker>()
     private val recognitionHandler = Handler(Looper.getMainLooper())
     private var recognitionRunnable: Runnable? = null
 
@@ -301,6 +302,40 @@ class EditorActivity : AppCompatActivity(), InkCanvasView.Host {
         }
 
         val lang = meta?.getLanguageForPage(page) ?: "fr-FR"
+
+        HandwritingManager.transcribe(lang, strokes, onResult = { fullText ->
+            if (fullText.isBlank()) {
+                AppLog.log("reco", "page $page : le texte reconnu est VIDE")
+                main.post { binding.ink.clearPageSpellFeedback(page) }
+                return@transcribe
+            }
+            AppLog.log("reco", "page $page reconnue : « $fullText »")
+
+            runSpellCheck(page, lang, fullText, strokes)
+        }, onError = { e ->
+            AppLog.log("reco", "reconnaissance impossible (page $page)", e)
+            main.post {
+                Snackbar.make(
+                    binding.root,
+                    "Reco : ${e.message ?: "erreur du modèle"}",
+                    Snackbar.LENGTH_LONG
+                ).show()
+            }
+        })
+    }
+
+    /**
+     * Point d'entrée commun de la correction : privilégie le correcteur
+     * Hunspell embarqué (hors ligne, dans l'APK), sinon retombe sur le
+     * correcteur système Android.
+     */
+    private fun runSpellCheck(page: Int, lang: String, fullText: String, strokes: List<Stroke>) {
+        val hunspell = hunspellCheckers.getOrPut(lang) { HunspellSpellChecker(this, lang) }
+        if (hunspell.isAvailable) {
+            val misspelled = hunspell.checkSpelling(fullText)
+            applySpellFeedback(page, fullText, strokes, misspelled)
+            return
+        }
         val locale = Locale.forLanguageTag(lang)
         val spellChecker = spellCheckers.getOrPut(lang) {
             SpellCheckManager(this, locale) {
@@ -322,79 +357,110 @@ class EditorActivity : AppCompatActivity(), InkCanvasView.Host {
                 }
             }
         }
-
-        HandwritingManager.transcribe(lang, strokes, onResult = { fullText ->
-            if (fullText.isBlank()) {
-                AppLog.log("reco", "page $page : le texte reconnu est VIDE")
-                main.post { binding.ink.clearPageSpellFeedback(page) }
-                return@transcribe
-            }
-            AppLog.log("reco", "page $page reconnue : « $fullText »")
-
-            spellChecker.checkSpelling(fullText) { misspelledWords ->
-                main.post {
-                    val globalBox = calculateBoundingBox(strokes)
-                    val wordWidth = globalBox.width()
-                    val feedback = mutableListOf<InkCanvasView.SpellFeedback>()
-
-                    val words = fullText.split(Regex("\\s+")).filter { it.isNotBlank() }
-                    var currentSearchIndex = 0
-
-                    for (wordText in words) {
-                        val offset = fullText.indexOf(wordText, currentSearchIndex)
-                        if (offset == -1) continue
-                        currentSearchIndex = offset + wordText.length
-
-                        val length = wordText.length
-                        val isError = misspelledWords.any {
-                            (it.offset >= offset && it.offset < offset + length) ||
-                                    (offset >= it.offset && offset < it.offset + it.length)
-                        }
-
-                        val ratio = offset.toFloat() / fullText.length
-                        val endRatio = (offset + length).toFloat() / fullText.length
-                        val left = globalBox.left + ratio * wordWidth
-                        val right = globalBox.left + endRatio * wordWidth
-
-                        feedback.add(
-                            InkCanvasView.SpellFeedback(
-                                wordText,
-                                RectF(left, globalBox.top, right, globalBox.bottom),
-                                isError
-                            )
-                        )
-                    }
-
-                    AppLog.log("spellcheck", "Page $page: ${feedback.size} mots trouvés, ${misspelledWords.size} erreurs")
-                    binding.ink.setPageSpellFeedback(page, feedback)
-                }
-            }
-        }, onError = { e ->
-            AppLog.log("reco", "reconnaissance impossible (page $page)", e)
-            main.post {
-                Snackbar.make(
-                    binding.root,
-                    "Reco : ${e.message ?: "erreur du modèle"}",
-                    Snackbar.LENGTH_LONG
-                ).show()
-            }
-        })
+        spellChecker.checkSpelling(fullText) { applySpellFeedback(page, fullText, strokes, it) }
     }
 
-    private fun calculateBoundingBox(strokes: List<Stroke>): RectF {
-        val box = RectF(Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE)
-        for (s in strokes) {
-            val pts = s.points
-            for (i in 0 until pts.size / 3) {
-                val x = pts[i * 3]
-                val y = pts[i * 3 + 1]
-                box.left = minOf(box.left, x)
-                box.top = minOf(box.top, y)
-                box.right = maxOf(box.right, x)
-                box.bottom = maxOf(box.bottom, y)
+    private fun applySpellFeedback(
+        page: Int,
+        fullText: String,
+        strokes: List<Stroke>,
+        misspelledWords: List<MisspelledWord>
+    ) {
+        main.post {
+            val feedback = mutableListOf<InkCanvasView.SpellFeedback>()
+
+            val words = fullText.split(Regex("\\s+")).filter { it.isNotBlank() }
+            // Regroupe spatialement les traits pour retrouver la position réelle
+            // de chaque mot (plusieurs lignes possibles) sur la page.
+            val wordBoxes = clusterWords(strokes)
+
+            var currentSearchIndex = 0
+            var wordIndex = 0
+
+            for (wordText in words) {
+                val offset = fullText.indexOf(wordText, currentSearchIndex)
+                if (offset == -1) continue
+                currentSearchIndex = offset + wordText.length
+
+                val length = wordText.length
+                val isError = misspelledWords.any {
+                    (it.offset >= offset && it.offset < offset + length) ||
+                            (offset >= it.offset && offset < it.offset + it.length)
+                }
+
+                // Sous le mot auquel ce mot reconnu correspond (par ordre de
+                // lecture) : aura, ari est cette portion-là.
+                val box = wordBoxes.getOrNull(wordIndex) ?: continue
+                wordIndex++
+
+                feedback.add(
+                    InkCanvasView.SpellFeedback(
+                        wordText,
+                        box,
+                        isError
+                    )
+                )
             }
+
+            AppLog.log("spellcheck", "Page $page: ${feedback.size} mots placés, ${misspelledWords.size} erreurs")
+            binding.ink.setPageSpellFeedback(page, feedback)
         }
-        return box
+    }
+
+    /**
+     * Regroupe les traits en mots (par proximité horizontale sur une même
+     * ligne), triés dans l'ordre de lecture (ligne par ligne, puis gauche →
+     * droite). Retourne la boîte englobante de chaque mot, en coordonnées page.
+     * Exploité pour souligner chaque mot à sa place réelle (hauteur et largeur
+     * propres), au lieu de tout étirer sur une ligne unique.
+     */
+    private fun clusterWords(strokes: List<Stroke>): List<RectF> {
+        // Boîte englobante + centre vertical de chaque trait (un trait ≈ une lettre).
+        data class E(val x1: Float, val y1: Float, val x2: Float, val y2: Float, val midY: Float, val h: Float)
+        val elems = strokes.mapNotNull { s ->
+            var x1 = Float.MAX_VALUE; var y1 = Float.MAX_VALUE; var x2 = -Float.MAX_VALUE; var y2 = -Float.MAX_VALUE
+            val pts = s.points
+            var i = 0
+            while (i + 1 < pts.size) {
+                val x = pts[i]; val y = pts[i + 1]
+                if (x < x1) x1 = x
+                if (y < y1) y1 = y
+                if (x > x2) x2 = x
+                if (y > y2) y2 = y
+                i += 3
+            }
+            if (x2 <= x1 || y2 <= y1) null else E(x1, y1, x2, y2, (y1 + y2) / 2f, y2 - y1)
+        }
+        if (elems.isEmpty()) return emptyList()
+        val medH = elems.map { it.h }.sorted()[elems.size / 2]
+
+        // Tri lecture : lignes du haut vers le bas, puis gauche → droite.
+        val sorted = elems.sortedWith(compareBy({ it.midY }, { it.x1 }))
+        val clusters = mutableListOf<MutableList<E>>()
+        var cur = mutableListOf<E>()
+        var prev: E? = null
+        for (e in sorted) {
+            if (prev != null) {
+                val lineJump = Math.abs(e.midY - prev.midY) >
+                        Math.max(0.7f * Math.max(e.h, prev.h), 0.6f * medH)
+                val bigGap = (e.x1 - prev.x2) > 0.8f * medH
+                if (lineJump || bigGap) {
+                    clusters.add(cur); cur = mutableListOf()
+                }
+            }
+            cur.add(e)
+            prev = e
+        }
+        clusters.add(cur)
+
+        return clusters.map { cl ->
+            var l = Float.MAX_VALUE; var t = Float.MAX_VALUE; var r = -Float.MAX_VALUE; var b = -Float.MAX_VALUE
+            for (e in cl) {
+                l = minOf(l, e.x1); t = minOf(t, e.y1)
+                r = maxOf(r, e.x2); b = maxOf(b, e.y2)
+            }
+            RectF(l, t, r, b)
+        }
     }
 
     private fun history(page: Int): HistoryStack = histories.getOrPut(page) { HistoryStack().also { it.onChanged = { main.post { updateHistoryButtons() } } } }
@@ -465,6 +531,7 @@ class EditorActivity : AppCompatActivity(), InkCanvasView.Host {
         saveRunnable?.let { saveHandler.removeCallbacks(it) }
         meta?.let { m -> pages[pageIndex]?.let { list -> val idx = pageIndex; io.execute { repo.savePage(m.id, idx, list); m.updatedAt = System.currentTimeMillis(); repo.saveMeta(m) } } }
         spellCheckers.values.forEach { it.close() }
+        hunspellCheckers.values.forEach { it.close() }
         finish()
     }
 
